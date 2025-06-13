@@ -108,6 +108,43 @@ This project uses the **CoinGecko API** (free tier) to fetch cryptocurrency data
 - Implemented with request queuing and error handling
 - Cached responses to minimize API calls
 
+## 🔧 API Rate Limiting & Build Optimization
+
+This application handles CoinGecko API rate limits (30 requests per minute) with several strategies:
+
+### Rate Limiting Solutions
+
+1. **Request Delays**: 3-second delays between API calls during build
+2. **Retry Logic**: Automatic retry with 30-second wait for rate-limited requests
+3. **Fallback Data**: Comprehensive fallback data for popular cryptocurrencies
+4. **Sequential Processing**: Build-time requests processed one at a time
+5. **Build Timeout**: Extended build timeout to accommodate delays
+
+### Environment Variables
+
+Add these to your Vercel deployment:
+
+```bash
+COINGECKO_API_DELAY=3000    # Delay between API calls (ms)
+SSG_MAX_COINS=10            # Number of coins for SSG
+NODE_ENV=production         # Production optimizations
+```
+
+### Build Optimization
+
+The custom build script (`scripts/build.js`) automatically:
+
+- Sets appropriate delays for production builds
+- Retries with fewer coins if rate limited
+- Provides detailed logging for debugging
+
+### Vercel Deployment
+
+1. **Environment Variables**: Set in Vercel dashboard
+2. **Build Command**: Uses `npm run build` (custom script)
+3. **Build Timeout**: Automatically extended for API delays
+4. **Fallback Strategy**: Always has working data even if API fails
+
 ## 🎯 Learning Objectives
 
 ### Performance Comparison

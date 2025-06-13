@@ -9,7 +9,7 @@ import {
   GlobalMarketData,
   CategoryData,
 } from "@/types/crypto";
-import { fallbackCoinData } from "./fallback-data";
+import { fallbackCoinData, getFallbackCryptoList } from "./fallback-data";
 
 const BASE_URL = "https://api.coingecko.com/api/v3";
 
@@ -27,10 +27,13 @@ coinGeckoApi.interceptors.request.use((config) => {
   // Use environment variable for delay, with fallbacks
   const baseDelay = process.env.COINGECKO_API_DELAY
     ? parseInt(process.env.COINGECKO_API_DELAY)
-    : 200;
+    : 2000; // 2 seconds default
 
   // Increase delay during build to avoid rate limits
-  const delay = process.env.NODE_ENV === "production" ? baseDelay : 200;
+  const delay =
+    process.env.NODE_ENV === "production" || process.env.VERCEL
+      ? Math.max(baseDelay, 3000) // Minimum 3 seconds in production
+      : 500; // 500ms in development
 
   return new Promise((resolve) => {
     setTimeout(() => resolve(config), delay);
@@ -41,9 +44,30 @@ coinGeckoApi.interceptors.request.use((config) => {
 coinGeckoApi.interceptors.response.use(
   (response) => response,
   async (error) => {
-    // If rate limited (429), don't retry - just reject immediately
+    const config = error.config;
+
+    // If rate limited (429), wait and retry during build time
     if (error.response?.status === 429) {
-      console.log(`Rate limited. Using fallback data immediately.`);
+      // Only retry during build/production
+      if (process.env.NODE_ENV === "production" || process.env.VERCEL) {
+        config.retryCount = config.retryCount || 0;
+
+        if (config.retryCount < 3) {
+          config.retryCount += 1;
+          const waitTime = 30000; // 30 seconds
+
+          console.log(
+            `Rate limited. Waiting ${waitTime / 1000}s before retry ${
+              config.retryCount
+            }/3...`
+          );
+
+          await new Promise((resolve) => setTimeout(resolve, waitTime));
+          return coinGeckoApi(config);
+        }
+      }
+
+      console.log(`Rate limited. Using fallback data.`);
       return Promise.reject(error);
     }
 
@@ -74,20 +98,25 @@ export const cryptoApi = {
     });
     return response.data;
   },
-
   // Get top cryptocurrencies (for SSG)
   getTopCryptos: async (limit: number = 10): Promise<CryptoData[]> => {
-    const response = await coinGeckoApi.get("/coins/markets", {
-      params: {
-        vs_currency: "usd",
-        order: "market_cap_desc",
-        per_page: limit,
-        page: 1,
-        sparkline: false,
-        price_change_percentage: "24h",
-      },
-    });
-    return response.data;
+    try {
+      const response = await coinGeckoApi.get("/coins/markets", {
+        params: {
+          vs_currency: "usd",
+          order: "market_cap_desc",
+          per_page: limit,
+          page: 1,
+          sparkline: false,
+          price_change_percentage: "24h",
+        },
+      });
+      return response.data;
+    } catch (error) {
+      console.error("Failed to get top cryptos, using fallback:", error);
+      // Return fallback data with top cryptocurrencies
+      return getFallbackCryptoList(limit);
+    }
   },
 
   // Get detailed information about a specific coin
@@ -315,4 +344,47 @@ export const getTopCryptos = async (
     console.error("Error fetching top cryptos:", axiosError.message);
     throw error;
   }
+};
+
+// Sequential API wrapper for build-time to avoid rate limits
+export const buildTimeApi = {
+  async getCoinsSequentially(coinIds: string[]) {
+    const results = [];
+    const delay = process.env.COINGECKO_API_DELAY
+      ? parseInt(process.env.COINGECKO_API_DELAY)
+      : 3000;
+
+    console.log(
+      `[BuildTime] Processing ${coinIds.length} coins with ${delay}ms delay...`
+    );
+
+    for (let i = 0; i < coinIds.length; i++) {
+      const coinId = coinIds[i];
+      console.log(
+        `[BuildTime] Processing ${i + 1}/${coinIds.length}: ${coinId}`
+      );
+
+      try {
+        const coinDetail = await cryptoApi.getCoinDetail(coinId);
+        results.push({ coinId, data: coinDetail, success: true });
+        console.log(`[BuildTime] ✓ ${coinId} completed`);
+
+        // Add delay between requests (except for the last one)
+        if (i < coinIds.length - 1) {
+          console.log(`[BuildTime] Waiting ${delay}ms before next request...`);
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        }
+      } catch (error) {
+        console.error(`[BuildTime] ✗ ${coinId} failed:`, error);
+        results.push({ coinId, data: null, success: false, error });
+      }
+    }
+
+    console.log(
+      `[BuildTime] Completed processing. Success: ${
+        results.filter((r) => r.success).length
+      }/${coinIds.length}`
+    );
+    return results;
+  },
 };

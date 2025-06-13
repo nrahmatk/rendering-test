@@ -31,17 +31,34 @@ export async function generateStaticParams() {
     // Use environment variable to control number of coins, with fallback
     const maxCoins = process.env.SSG_MAX_COINS
       ? parseInt(process.env.SSG_MAX_COINS)
-      : 5;
+      : 10; // Increased from 5 to 10
 
     console.log(`Generating static params for ${maxCoins} coins...`);
     const cryptoList = await getTopCryptos(maxCoins);
+
+    console.log(
+      `Successfully got ${cryptoList.length} coins for SSG:`,
+      cryptoList.map((c) => c.id).join(", ")
+    );
+
     return cryptoList.map((crypto: CryptoData) => ({
       id: crypto.id,
     }));
   } catch (error) {
     console.error("Error generating static params:", error);
-    // Fallback to minimal cryptocurrencies
-    return [{ id: "bitcoin" }, { id: "ethereum" }, { id: "binancecoin" }];
+    // Fallback to top cryptocurrencies
+    return [
+      { id: "bitcoin" },
+      { id: "ethereum" },
+      { id: "binancecoin" },
+      { id: "cardano" },
+      { id: "solana" },
+      { id: "polkadot" },
+      { id: "dogecoin" },
+      { id: "avalanche-2" },
+      { id: "chainlink" },
+      { id: "polygon" },
+    ];
   }
 }
 
@@ -49,26 +66,27 @@ export async function generateStaticParams() {
 async function getCoinStaticData(id: string) {
   try {
     // Sequential calls to avoid overwhelming the API
-    console.log(`Fetching data for ${id}...`);
+    console.log(`[SSG] Fetching data for ${id}...`);
 
     const coinDetail = await getCoinDetail(id);
-    // Skip price history to avoid rate limit, use fallback data
+    // Skip price history to avoid rate limit during build, use fallback data
     const priceHistory = fallbackPriceHistory;
 
+    console.log(`[SSG] Successfully fetched data for ${id}`);
     return {
       coinDetail,
       priceHistory,
       buildTimestamp: new Date().toISOString(),
-      isFromAPI: false, // Using fallback data for price history
+      isFromAPI: true,
     };
   } catch (error) {
-    console.error(`SSG coin data fetching error for ${id}:`, error);
+    console.error(`[SSG] Data fetching error for ${id}:`, error);
 
     // Use fallback data if API fails
     const fallbackCoin = fallbackCoinData[id as keyof typeof fallbackCoinData];
 
     if (fallbackCoin) {
-      console.log(`Using fallback data for ${id}`);
+      console.log(`[SSG] Using fallback data for ${id}`);
       return {
         coinDetail: fallbackCoin,
         priceHistory: fallbackPriceHistory,
@@ -77,9 +95,46 @@ async function getCoinStaticData(id: string) {
       };
     }
 
+    // If no fallback available, create minimal data
+    console.warn(
+      `[SSG] No data available for ${id}, creating minimal fallback`
+    );
     return {
-      coinDetail: null,
-      priceHistory: null,
+      coinDetail: {
+        id,
+        symbol: id,
+        name: id.charAt(0).toUpperCase() + id.slice(1),
+        market_cap_rank: 999,
+        hashing_algorithm: "Unknown",
+        block_time_in_minutes: 0,
+        genesis_date: "Unknown",
+        market_data: {
+          current_price: { usd: 0 },
+          market_cap: { usd: 0 },
+          total_volume: { usd: 0 },
+          price_change_percentage_24h: 0,
+          price_change_percentage_7d: 0,
+          price_change_percentage_30d: 0,
+          ath: { usd: 0 },
+          ath_change_percentage: { usd: 0 },
+          atl: { usd: 0 },
+          atl_change_percentage: { usd: 0 },
+          circulating_supply: 0,
+          total_supply: 0,
+        },
+        description: {
+          en: `Information for ${id} is currently unavailable.`,
+        },
+        image: {
+          large:
+            "https://via.placeholder.com/200x200.png?text=" + id.toUpperCase(),
+        },
+        links: {
+          homepage: [],
+          twitter_screen_name: "",
+        },
+      },
+      priceHistory: fallbackPriceHistory,
       buildTimestamp: new Date().toISOString(),
       isFromAPI: false,
     };
